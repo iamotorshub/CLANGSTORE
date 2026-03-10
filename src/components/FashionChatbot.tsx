@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, X, Send, Sparkles, ChevronDown } from "lucide-react";
-import { GoogleGenAI } from "@google/genai";
 
-// ─── Gemini setup ─────────────────────────────────────────────────────────────
-// Set VITE_GEMINI_API_KEY in your .env file (never commit the key directly)
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY ?? "";
-const ai = new GoogleGenAI({ apiKey });
+// ─── OpenRouter / DeepSeek setup ──────────────────────────────────────────────
+const OPENROUTER_KEY = import.meta.env.VITE_OPENROUTER_KEY ?? "";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const CHAT_MODEL = "deepseek/deepseek-chat";
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `
@@ -98,6 +97,48 @@ const SUGGESTIONS = [
   "¿Qué está de moda esta temporada?",
 ];
 
+// ─── OpenRouter API call ───────────────────────────────────────────────────────
+async function callClaraAI(
+  history: { role: "user" | "assistant"; text: string }[],
+  userText: string,
+): Promise<string> {
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...history.map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.text,
+    })),
+    { role: "user", content: userText },
+  ];
+
+  const res = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${OPENROUTER_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://clang.store",
+      "X-Title": "CLANG Store — Clara AI",
+    },
+    body: JSON.stringify({
+      model: CHAT_MODEL,
+      messages,
+      max_tokens: 400,
+      temperature: 0.85,
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`OpenRouter ${res.status}: ${errBody}`);
+  }
+
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) throw new Error("No response content from OpenRouter");
+  return content as string;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function FashionChatbot() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -129,71 +170,58 @@ export default function FashionChatbot() {
     }
   }, [isOpen]);
 
-  const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || isLoading) return;
+  const sendMessage = useCallback(
+    async (text: string) => {
+      if (!text.trim() || isLoading) return;
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      text: text.trim(),
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsLoading(true);
-
-    try {
-      // Build Gemini conversation history (exclude welcome message from history)
-      const history = messages
-        .filter((m) => m.id !== "welcome")
-        .map((m) => ({
-          role: m.role === "user" ? "user" : "model" as const,
-          parts: [{ text: m.text }],
-        }));
-
-      // Add current user message
-      history.push({ role: "user", parts: [{ text: text.trim() }] });
-
-      const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: history,
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
-          maxOutputTokens: 400,
-          temperature: 0.85,
-        },
-      });
-
-      const assistantText =
-        response.text ?? "Perdón, no pude procesar tu consulta. ¿Podés intentar de nuevo?";
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        text: assistantText,
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: "user",
+        text: text.trim(),
         timestamp: new Date(),
       };
 
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+      setIsLoading(true);
 
-      if (!isOpen) {
-        setHasUnread(true);
-      }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
+      try {
+        // Build history (exclude welcome message)
+        const history = messages
+          .filter((m) => m.id !== "welcome")
+          .map((m) => ({ role: m.role, text: m.text }));
+
+        const assistantText = await callClaraAI(history, text.trim());
+
+        const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: "assistant",
-          text: "Ups, tuve un problema de conexión. ¿Podés intentar de nuevo en un momento?",
+          text: assistantText,
           timestamp: new Date(),
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [messages, isLoading, isOpen]);
+        };
+
+        setMessages((prev) => [...prev, assistantMessage]);
+
+        if (!isOpen) {
+          setHasUnread(true);
+        }
+      } catch (err) {
+        console.error("[Clara] API error:", err);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            text: "Perdón, tuve un pequeño inconveniente. ¿Podés intentar de nuevo en un momento? 🙏",
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [messages, isLoading, isOpen],
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,8 +242,8 @@ export default function FashionChatbot() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.97 }}
             transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
-            className="fixed bottom-24 right-4 lg:right-8 z-50 w-[calc(100vw-32px)] max-w-[380px] flex flex-col"
-            style={{ height: "min(560px, calc(100vh - 140px))" }}
+            className="fixed bottom-[160px] right-4 lg:right-8 z-50 w-[calc(100vw-32px)] max-w-[380px] flex flex-col"
+            style={{ height: "min(520px, calc(100vh - 200px))" }}
           >
             {/* Panel */}
             <div className="flex flex-col h-full bg-[#0e0e0e] border border-white/10 shadow-2xl overflow-hidden">
@@ -337,12 +365,12 @@ export default function FashionChatbot() {
         )}
       </AnimatePresence>
 
-      {/* ── Floating trigger button ───────────────────────────────────────── */}
+      {/* ── Floating trigger button — positioned ABOVE WhatsApp (bottom-[88px]) ── */}
       <motion.button
         onClick={() => setIsOpen((prev) => !prev)}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className="fixed bottom-6 right-4 lg:right-8 z-50 w-14 h-14 bg-[#0e0e0e] border border-white/20 hover:border-primary/60 shadow-xl flex items-center justify-center transition-all duration-300 group"
+        className="fixed bottom-[88px] right-4 lg:right-8 z-50 w-14 h-14 bg-[#0e0e0e] border border-white/20 hover:border-primary/60 shadow-xl flex items-center justify-center transition-all duration-300 group"
         aria-label={isOpen ? "Cerrar chat" : "Abrir asesora de moda"}
       >
         <AnimatePresence mode="wait" initial={false}>
