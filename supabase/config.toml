@@ -1,0 +1,10 @@
+project_id = "pupownhjajrpvfevwany"
+
+[functions.ai-extract-garment]
+verify_jwt = false
+
+[functions.ai-generate-lookbook]
+verify_jwt = false
+
+[functions.ai-virtual-tryon]
+verify_jwt = false
