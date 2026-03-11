@@ -117,7 +117,7 @@ async function callClaraAI(
       Authorization: `Bearer ${OPENROUTER_KEY}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://clang.store",
-      "X-Title": "CLANG Store — Clara AI",
+      "X-Title": "CLANG Store - Clara AI",
     },
     body: JSON.stringify({
       model: CHAT_MODEL,
@@ -365,46 +365,63 @@ export default function FashionChatbot() {
         )}
       </AnimatePresence>
 
-      {/* ── Floating trigger button — positioned ABOVE WhatsApp (bottom-[88px]) ── */}
-      <motion.button
-        onClick={() => setIsOpen((prev) => !prev)}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        className="fixed bottom-[88px] right-4 lg:right-8 z-50 w-14 h-14 bg-[#0e0e0e] border border-white/20 hover:border-primary/60 shadow-xl flex items-center justify-center transition-all duration-300 group"
-        aria-label={isOpen ? "Cerrar chat" : "Abrir asesora de moda"}
-      >
-        <AnimatePresence mode="wait" initial={false}>
-          {isOpen ? (
-            <motion.span
-              key="close"
-              initial={{ rotate: -90, opacity: 0 }}
-              animate={{ rotate: 0, opacity: 1 }}
-              exit={{ rotate: 90, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <X size={20} className="text-white/70 group-hover:text-white" />
-            </motion.span>
-          ) : (
-            <motion.span
-              key="open"
-              initial={{ rotate: 90, opacity: 0 }}
-              animate={{ rotate: 0, opacity: 1 }}
-              exit={{ rotate: -90, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="relative"
-            >
-              <MessageCircle
-                size={20}
-                className="text-primary group-hover:text-primary/80 transition-colors"
-              />
-              {/* Unread badge */}
-              {hasUnread && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border border-[#0e0e0e]" />
-              )}
-            </motion.span>
-          )}
-        </AnimatePresence>
-      </motion.button>
+      {/* ── Floating trigger button — premium pill style ── */}
+      <AnimatePresence mode="wait" initial={false}>
+        {isOpen ? (
+          /* Compact close button when chat is open */
+          <motion.button
+            key="btn-close"
+            onClick={() => setIsOpen(false)}
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.2 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="fixed bottom-[88px] right-4 lg:right-8 z-50 w-12 h-12 bg-[#0e0e0e] border border-white/20 hover:border-white/40 shadow-xl flex items-center justify-center transition-all duration-300"
+            aria-label="Cerrar chat"
+          >
+            <X size={18} className="text-white/60 hover:text-white" />
+          </motion.button>
+        ) : (
+          /* Premium pill CTA */
+          <motion.button
+            key="btn-open"
+            onClick={() => setIsOpen(true)}
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+            whileHover={{ scale: 1.03, x: -2 }}
+            whileTap={{ scale: 0.97 }}
+            className="fixed bottom-[88px] right-4 lg:right-8 z-50 flex items-center gap-3 pl-3 pr-5 py-0 h-14 bg-[#0e0e0e] border border-[#C4A97A]/40 hover:border-[#C4A97A]/80 shadow-[0_4px_24px_rgba(196,169,122,0.15)] hover:shadow-[0_4px_32px_rgba(196,169,122,0.28)] transition-all duration-300 group"
+            aria-label="Abrir asesora de imagen"
+          >
+            {/* Avatar icon */}
+            <div className="relative flex-shrink-0">
+              <div className="w-8 h-8 bg-gradient-to-br from-[#C4A97A] to-[#8B7355] flex items-center justify-center">
+                <Sparkles size={14} className="text-black" />
+              </div>
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 border-2 border-[#0e0e0e] rounded-full" />
+            </div>
+
+            {/* Text */}
+            <div className="flex flex-col items-start leading-none">
+              <span className="font-display text-[11px] tracking-[0.18em] text-white group-hover:text-[#C4A97A] transition-colors">
+                CLARA
+              </span>
+              <span className="font-body text-[9px] tracking-[0.2em] uppercase text-white/40 mt-0.5">
+                Asesora de imagen
+              </span>
+            </div>
+
+            {/* Unread badge */}
+            {hasUnread && (
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-[#0e0e0e]" />
+            )}
+          </motion.button>
+        )}
+      </AnimatePresence>
     </>
   );
 }

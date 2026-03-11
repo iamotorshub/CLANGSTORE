@@ -2,13 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ImageUpload } from './ImageUpload';
 import { fileToBase64, cn } from '@/lib/utils';
-import { GoogleGenAI } from '@google/genai';
+import { withGeminiRotation } from '@/lib/geminiRotation';
 import { Sparkles, Download, ArrowRight, ChevronLeft, Check } from 'lucide-react';
 import { Typewriter } from './Typewriter';
-
-// Gemini API — usar VITE_GEMINI_API_KEY en .env.local para evitar rate limits
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY ?? "";
-const ai = new GoogleGenAI({ apiKey: apiKey as string });
 
 import prod1 from '@/assets/products/camisa-loreana.webp';
 import prod2 from '@/assets/products/jean-oxid.jpg';
@@ -192,11 +188,13 @@ export function VirtualTryOn() {
         }
         parts.push({ text: prompt });
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash-exp-image-generation',
-          contents: { parts },
-          config: { responseModalities: ['TEXT', 'IMAGE'] } as any
-        });
+        const response = await withGeminiRotation(async (client) =>
+          client.models.generateContent({
+            model: 'gemini-2.0-flash-exp-image-generation',
+            contents: { parts },
+            config: { responseModalities: ['IMAGE', 'TEXT'] } as any,
+          })
+        );
 
         let generatedBase64 = null;
         for (const part of response.candidates?.[0]?.content?.parts || []) {

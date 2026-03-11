@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ImageUpload } from '@/components/ImageUpload';
 import { fileToBase64, cn } from '@/lib/utils';
-import { Sparkles, ArrowRight, ChevronLeft, User, CheckCircle2, Heart } from 'lucide-react';
+import { GoogleGenAI } from '@google/genai';
+import { Sparkles, ArrowRight, ChevronLeft, Camera, User, CheckCircle2, Heart } from 'lucide-react';
 import { Typewriter } from '@/components/Typewriter';
+import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { withGeminiRotation, imageUrlToBase64 } from '@/lib/geminiRotation';
 
 const SHOP_ITEMS = [
   { id: 'item1', name: 'CAMISA LOREANA', price: '$ 79.900', image_url: 'https://images.unsplash.com/photo-1598554747436-c9293d6a588f?auto=format&fit=crop&w=400&q=80' },
@@ -55,16 +56,46 @@ export default function VirtualFitting() {
     setResultImage(null);
 
     try {
-      // Step 1: Convert user photo to base64
-      setProgressText('Analizando tu foto...');
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || "AIzaSyBqbAueDAAia6-rdm0Yy_0kbMHF9VKGEI0";
+      const aiClient = new GoogleGenAI({ apiKey });
+
+      setProgressText('Analyzing your photo...');
       const userBase64 = await fileToBase64(userFile);
 
-      // Step 2: Convert garment image to base64 — CORS-safe (canvas method for iOS)
-      setProgressText('Preparando la prenda...');
-      const garmentBase64 = await imageUrlToBase64(selectedGarment.image_url);
+      setProgressText('Aislando tu silueta para mayor precisión...');
+      const userIsolationPrompt = `Remove the background from this image. Keep the person completely intact. Output the person on a pure white background.`;
+      const userIsolationResponse = await aiClient.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: {
+          parts: [
+            { inlineData: { data: userBase64, mimeType: userFile.type } },
+            { text: userIsolationPrompt }
+          ]
+        }
+      });
 
-      // Step 3: Generate virtual fitting with Gemini (key rotation on 429)
-      setProgressText('Probando la prenda en vos...');
+      let isolatedUserBase64 = userBase64; // fallback
+      for (const part of userIsolationResponse.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          isolatedUserBase64 = part.inlineData.data;
+          break;
+        }
+      }
+
+      setProgressText('Preparing the garment...');
+      const response = await fetch(selectedGarment.image_url);
+      const blob = await response.blob();
+      const reader = new FileReader();
+      const garmentBase64Promise = new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          const b64 = (reader.result as string).split(',')[1];
+          resolve(b64);
+        };
+        reader.readAsDataURL(blob);
+      });
+      const garmentBase64 = await garmentBase64Promise;
+
+      setProgressText('Fitting the garment...');
 
       const prompt = `FUSIÓN: Genera una fotografía hiperrealista de estudio donde el Sujeto (Image 1) esté vistiendo EXACTAMENTE la Prenda (Image 2).
 FÍSICAS: La ropa debe tener una caída natural (natural drape), respetando la tensión de la tela sobre la volumetría del cuerpo humano.
@@ -72,20 +103,15 @@ FÍSICAS: La ropa debe tener una caída natural (natural drape), respetando la t
 TEXTURAS: Mantén la identidad del sujeto, su rostro, tono de piel y cabello.
 RESTRICCIONES: BAJO NINGUNA CIRCUNSTANCIA debes generar lo siguiente: plastic skin, airbrushed, 3D render, CGI, over-saturated, morphed fabric, floating.`;
 
-      const genResponse = await withGeminiRotation(async (aiClient) => {
-        return await aiClient.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: {
-            parts: [
-              { inlineData: { data: userBase64, mimeType: userFile.type } },
-              { inlineData: { data: garmentBase64, mimeType: 'image/jpeg' } },
-              { text: prompt }
-            ]
-          },
-          config: {
-            responseModalities: ['IMAGE', 'TEXT'],
-          },
-        });
+      const genResponse = await aiClient.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: {
+          parts: [
+            { inlineData: { data: isolatedUserBase64, mimeType: 'image/jpeg' } },
+            { inlineData: { data: garmentBase64, mimeType: 'image/jpeg' } },
+            { text: prompt }
+          ]
+        }
       });
 
       let generatedBase64 = null;
@@ -100,21 +126,12 @@ RESTRICCIONES: BAJO NINGUNA CIRCUNSTANCIA debes generar lo siguiente: plastic sk
         setResultImage(`data:image/jpeg;base64,${generatedBase64}`);
         setStep('RESULTS');
       } else {
-        throw new Error("No se pudo generar la imagen de la prenda.");
+        throw new Error("Failed to generate fitting image. No inlineData returned.");
       }
 
     } catch (err: any) {
-      console.error('[VirtualFitting]', err);
-      const msg: string = err.message || "";
-      if (msg.includes("429") || msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("rate")) {
-        setError("¡La IA está muy pedida en este momento! 🔥 Esperá 30 segundos y volvé a intentarlo.");
-      } else if (msg.toLowerCase().includes("network") || msg.toLowerCase().includes("fetch") || msg.toLowerCase().includes("cors")) {
-        setError("No pudimos cargar la imagen de la prenda. Revisá tu conexión e intentá de nuevo.");
-      } else if (msg.toLowerCase().includes("no se pudo")) {
-        setError("La IA no pudo procesar las imágenes esta vez. Probá con otra foto o prenda.");
-      } else {
-        setError("Algo salió mal al generar el look. Volvé a intentarlo en un momento 🙌");
-      }
+      console.error(err);
+      setError(err.message || "An error occurred during generation.");
       setStep('GARMENT'); // Go back on error
     } finally {
       setIsGenerating(false);
@@ -122,14 +139,16 @@ RESTRICCIONES: BAJO NINGUNA CIRCUNSTANCIA debes generar lo siguiente: plastic sk
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground selection:bg-primary/20">
+    <div className="min-h-screen bg-zinc-950 text-white selection:bg-white/20 font-sans">
+      <Navbar />
+
       {/* Background Atmosphere */}
       <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-primary/4 blur-[120px]" />
-        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-primary/3 blur-[120px]" />
+        <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-white/5 blur-[120px]" />
+        <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-[#D4B895]/5 blur-[120px]" />
       </div>
 
-      <main className="pt-24 pb-12 relative z-10 w-full min-h-screen">
+      <main className="pt-32 pb-12 relative z-10 w-full min-h-screen">
         <div className="w-full max-w-7xl mx-auto p-6 font-sans">
           <div className="text-center mb-16">
             <h1 className="text-4xl md:text-5xl font-serif tracking-tight text-white mb-4">
@@ -140,7 +159,7 @@ RESTRICCIONES: BAJO NINGUNA CIRCUNSTANCIA debes generar lo siguiente: plastic sk
             </p>
           </div>
 
-          <div className="relative min-h-[700px] rounded-[2rem] bg-card/80 backdrop-blur-3xl overflow-hidden p-8 md:p-12 shadow-2xl border border-border/30">
+          <div className="relative min-h-[700px] rounded-[2rem] bg-zinc-900/50 backdrop-blur-3xl overflow-hidden p-8 md:p-12 shadow-2xl border border-white/5">
             <AnimatePresence mode="wait">
               {step === 'INSTRUCTIONS' && (
                 <motion.div
@@ -307,7 +326,6 @@ RESTRICCIONES: BAJO NINGUNA CIRCUNSTANCIA debes generar lo siguiente: plastic sk
                         <img
                           src={item.image_url}
                           alt={item.name}
-                          crossOrigin="anonymous"
                           className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                         />
 
@@ -342,12 +360,9 @@ RESTRICCIONES: BAJO NINGUNA CIRCUNSTANCIA debes generar lo siguiente: plastic sk
                   {error && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                      className="mt-6 p-4 rounded-xl bg-primary/8 border border-primary/20 text-foreground text-sm text-center flex items-center justify-center gap-3"
+                      className="mt-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm text-center"
                     >
-                      <span className="text-xl flex-shrink-0">
-                        {error.includes("pedida") ? "⏳" : error.includes("conexión") ? "📡" : "✨"}
-                      </span>
-                      <span className="text-muted-foreground">{error}</span>
+                      {error}
                     </motion.div>
                   )}
                 </motion.div>
