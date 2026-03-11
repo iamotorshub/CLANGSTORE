@@ -75,7 +75,7 @@ RESTRICCIONES: BAJO NINGUNA CIRCUNSTANCIA debes generar lo siguiente: plastic sk
 
       const genResponse = await withGeminiRotation(async (aiClient) => {
         return await aiClient.models.generateContent({
-          model: 'gemini-2.0-flash-exp-image-generation',
+          model: 'gemini-2.5-flash-image',
           contents: {
             parts: [
               { inlineData: { data: userBase64, mimeType: userFile.type } },

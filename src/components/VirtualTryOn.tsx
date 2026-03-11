@@ -190,7 +190,7 @@ export function VirtualTryOn() {
 
         const response = await withGeminiRotation(async (client) =>
           client.models.generateContent({
-            model: 'gemini-2.0-flash-exp-image-generation',
+            model: 'gemini-2.5-flash-image',
             contents: { parts },
             config: { responseModalities: ['IMAGE', 'TEXT'] } as any,
           })
